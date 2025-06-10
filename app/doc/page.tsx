@@ -14,7 +14,7 @@ export default function DocPage() {
   const [scriptId, setScriptId] = useState<string>('');
   const [scriptContent, setScriptContent] = useState<string>('');
   const [isListening, setIsListening] = useState(false);
-  const [documentTitle, setDocumentTitle] = useState('Untitled Document');
+  const [documentTitle, setDocumentTitle] = useState('What do you want to create today?');
   const [isThinkingPanelOpen, setIsThinkingPanelOpen] = useState(false);
   const [showStoryline, setShowStoryline] = useState(false);
   const [storylineData, setStorylineData] = useState<any>(null);
@@ -44,7 +44,7 @@ export default function DocPage() {
         const data = doc.data();
         if (!searchParams.get('data')) {
           setScriptContent(data.content || '');
-          setDocumentTitle(data.title || 'Untitled Document');
+          setDocumentTitle(data.title || 'What do you want to create today?');
         }
       }
     });
@@ -112,7 +112,7 @@ export default function DocPage() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
-              {showStoryline ? 'Masquer' : 'Afficher'} Storyline
+              {showStoryline ? 'Hide' : 'Show'} Storyline
             </button>
           </div>
         )}
@@ -134,7 +134,7 @@ export default function DocPage() {
                 <div key={index} className="border-l-2 border-gray-300 pl-4">
                   <h3 className="font-medium text-base mb-2 text-gray-900">{section.nom}</h3>
                   <p className="text-sm text-gray-600 mb-2">
-                    Durée: {section.duree_sec || section.duree_max_sec || section.duree_moyenne_sec}s
+                    Duration: {section.duree_sec || section.duree_max_sec || section.duree_moyenne_sec}s
                   </p>
                   {section.objectifs && (
                     <ul className="list-disc list-inside text-sm text-gray-700">

@@ -25,7 +25,7 @@ export default function Home() {
     const idea = lines.slice(1).join('\n') || ''
 
     if (!title || !idea) {
-      alert('Veuillez inclure un titre et une description')
+      alert('Please include a title and description')
       return
     }
 
@@ -46,10 +46,10 @@ export default function Home() {
         }),
       })
 
-      if (!response.ok) throw new Error('Erreur lors de l\'exploration')
+      if (!response.ok) throw new Error('Error during exploration')
 
       const reader = response.body?.getReader()
-      if (!reader) throw new Error('Pas de reader disponible')
+      if (!reader) throw new Error('No reader available')
 
       while (true) {
         const { done, value } = await reader.read()
@@ -68,14 +68,14 @@ export default function Home() {
                 router.push(`/doc?data=${encodeURIComponent(JSON.stringify(data.content))}`)
               }
             } catch (e) {
-              console.error('Erreur parsing SSE:', e)
+              console.error('Error parsing SSE:', e)
             }
           }
         }
       }
     } catch (error) {
-      console.error('Erreur:', error)
-      alert('Une erreur est survenue')
+      console.error('Error:', error)
+      alert('An error occurred')
     } finally {
       setIsLoading(false)
     }
@@ -99,7 +99,7 @@ export default function Home() {
       {/* Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-3xl mx-auto px-4 py-4">
-          <h1 className="text-xl font-medium text-gray-900">Script Generator</h1>
+          <h1 className="text-2xl font-semibold text-gray-900">AI Video Script & Storyboard Generator</h1>
         </div>
       </div>
 
@@ -109,7 +109,7 @@ export default function Home() {
           {/* Results */}
           {results.length > 0 && (
             <div className="mb-6 space-y-3">
-              <h2 className="text-sm font-medium text-gray-700">Résultats de recherche</h2>
+              <h2 className="text-sm font-medium text-gray-700">Search Results</h2>
               {results.map((result, index) => (
                 <div key={index} className="p-3 rounded-lg border border-gray-200 bg-white">
                   <div className="flex gap-3">
@@ -138,11 +138,13 @@ export default function Home() {
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Entrez le titre de votre vidéo sur la première ligne, puis décrivez votre idée...
+                  placeholder="What do you want to create today?
 
-Exemple:
-L'histoire fascinante de Marie Curie
-Je veux créer une vidéo biographique sur Marie Curie, en mettant l'accent sur ses découvertes scientifiques révolutionnaires et les obstacles qu'elle a dû surmonter en tant que femme dans le monde scientifique du début du 20e siècle."
+Enter your video title on the first line, then describe your idea...
+
+Example:
+The Fascinating Story of Marie Curie
+I want to create a biographical video about Marie Curie, emphasizing her revolutionary scientific discoveries and the obstacles she had to overcome as a woman in the early 20th century scientific world."
                   className="w-full h-48 p-4 text-gray-900 placeholder-gray-400 bg-white border border-gray-300 rounded-lg focus:border-gray-500 focus:outline-none resize-none"
                   disabled={isLoading}
                 />
@@ -173,7 +175,7 @@ Je veux créer une vidéo biographique sur Marie Curie, en mettant l'accent sur 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">MCP Server</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Platform</label>
                       <div className="flex gap-2">
                         {['youtube', 'tiktok', 'instagram'].map((server) => (
                           <button
@@ -194,7 +196,7 @@ Je veux créer une vidéo biographique sur Marie Curie, en mettant l'accent sur 
                     {mcpServer === 'youtube' && (
                       <input
                         type="text"
-                        placeholder="Clé API YouTube"
+                        placeholder="YouTube API Key"
                         value={youtubeKey}
                         onChange={(e) => setYoutubeKey(e.target.value)}
                         className="w-full px-3 py-2 text-sm text-gray-900 placeholder-gray-400 bg-white border border-gray-300 rounded-md focus:border-gray-500 focus:outline-none"
@@ -203,7 +205,7 @@ Je veux créer une vidéo biographique sur Marie Curie, en mettant l'accent sur 
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Durée cible: {targetDuration}s
+                        Target Duration: {targetDuration}s
                       </label>
                       <input
                         type="range"
@@ -219,7 +221,7 @@ Je veux créer une vidéo biographique sur Marie Curie, en mettant l'accent sur 
 
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <label className="text-sm font-medium text-gray-700">Recherche Web</label>
+                      <label className="text-sm font-medium text-gray-700">Web Search</label>
                       <button
                         onClick={() => setSearchEnabled(!searchEnabled)}
                         className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
@@ -236,7 +238,7 @@ Je veux créer une vidéo biographique sur Marie Curie, en mettant l'accent sur 
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Scripts personnalisés
+                        Custom Scripts
                       </label>
                       <input
                         type="file"
@@ -247,7 +249,7 @@ Je veux créer une vidéo biographique sur Marie Curie, en mettant l'accent sur 
                       />
                       {customScripts.length > 0 && (
                         <p className="mt-1 text-xs text-gray-600">
-                          {customScripts.length} fichier(s) sélectionné(s)
+                          {customScripts.length} file(s) selected
                         </p>
                       )}
                     </div>
