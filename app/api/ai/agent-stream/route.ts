@@ -61,3 +61,21 @@ export function sendAgentEvent(sessionId: string, eventType: string, data: any) 
     }
   }
 }
+
+// Helper function to send YouTube-specific events
+export function sendYouTubeEvent(sessionId: string, eventType: 'search' | 'captions' | 'analysis', data: any) {
+  sendAgentEvent(sessionId, `youtube:${eventType}`, {
+    timestamp: Date.now(),
+    source: 'youtube-mcp',
+    ...data
+  });
+}
+
+// Helper function to send MCP server events
+export function sendMCPEvent(sessionId: string, serverName: string, eventType: string, data: any) {
+  sendAgentEvent(sessionId, `mcp:${serverName}:${eventType}`, {
+    timestamp: Date.now(),
+    server: serverName,
+    ...data
+  });
+}

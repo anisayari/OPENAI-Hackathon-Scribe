@@ -2,77 +2,151 @@
 
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { db } from '@/lib/firebase';
-import { doc, setDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { useFirestoreSync } from '@/lib/firestore-sync';
 import DocumentEditor from '@/components/DocumentEditor';
+import EnhancedDocumentEditor from '@/components/EnhancedDocumentEditor';
 import Header from '@/components/Header';
 import AgentThinkingPanel from '@/components/AgentThinkingPanel';
 import SimpleFineTuning from '@/components/SimpleFineTuning';
 import Timeline from '@/components/Timeline';
+import ScriptImageGenerator from '@/components/ScriptImageGenerator';
 
 export default function DocPage() {
   const searchParams = useSearchParams();
+  const { saveScript, updateScript, loadScript, autoSave } = useFirestoreSync();
   const [scriptId, setScriptId] = useState<string>('');
   const [scriptContent, setScriptContent] = useState<string>('');
   const [isListening, setIsListening] = useState(false);
   const [documentTitle, setDocumentTitle] = useState('What do you want to create today?');
   const [isThinkingPanelOpen, setIsThinkingPanelOpen] = useState(false);
-  const [showStoryline, setShowStoryline] = useState(false);
+  const [showStoryline, setShowStoryline] = useState(true);
   const [storylineData, setStorylineData] = useState<any>(null);
-  const [viewMode, setViewMode] = useState<'doc' | 'timeline'>('doc');
+  const [viewMode, setViewMode] = useState<'doc' | 'timeline' | 'images'>('doc');
   const [targetDuration, setTargetDuration] = useState<number>(1500);
+  const [fullScriptData, setFullScriptData] = useState<any>(null);
+  const [parsedSections, setParsedSections] = useState<any[]>([]);
 
   useEffect(() => {
-    // Check if we have data from the exploration
-    const data = searchParams.get('data');
-    if (data) {
-      try {
-        const parsedData = JSON.parse(decodeURIComponent(data));
-        setScriptContent(parsedData.script || '');
-        setDocumentTitle(parsedData.title || 'Generated Script');
-        setStorylineData(parsedData.storyline || null);
-        setTargetDuration(parsedData.targetDuration || 1500);
-      } catch (e) {
-        console.error('Error parsing data:', e);
-      }
-    }
-
-    // Generate a unique script ID when the app loads
-    const newScriptId = `script-${Date.now()}`;
-    setScriptId(newScriptId);
-
-    // Set up real-time listener for script updates
-    const scriptRef = doc(db, 'scripts', newScriptId);
-    const unsubscribe = onSnapshot(scriptRef, (doc) => {
-      if (doc.exists()) {
-        const data = doc.data();
-        if (!searchParams.get('data')) {
-          setScriptContent(data.content || '');
-          setDocumentTitle(data.title || 'What do you want to create today?');
+    const initializeScript = async () => {
+      // Check if we have data from the exploration
+      const data = searchParams.get('data');
+      let newScriptId = '';
+      
+      if (data) {
+        try {
+          const parsedData = JSON.parse(decodeURIComponent(data));
+          let finalContent = '';
+          
+          // Handle script data - it might be an array of objects or a string
+          if (Array.isArray(parsedData.script)) {
+            // Convert array of timestamp objects to HTML format with bold titles
+            finalContent = parsedData.script.map((item: any, index: number) => {
+              if (typeof item === 'object' && item.timestamp && item.content) {
+                // Extract title from content (first sentence or until comma)
+                const titleMatch = item.content.match(/^([^.,:]+)/);
+                const title = titleMatch ? titleMatch[1].trim().toUpperCase() : `SECTION ${index + 1}`;
+                
+                // Format as HTML with bold uppercase title
+                return `<p><strong>${item.timestamp} - ${title}</strong></p><p>${item.content}</p>`;
+              }
+              return `<p>${item.toString()}</p>`;
+            }).join('<br>');
+            // Store the parsed sections for enhanced editor
+            setParsedSections(parsedData.script);
+          } else {
+            const originalScript = parsedData.script || '';
+            
+            // Parse sections from string format if needed
+            if (parsedData.script) {
+              const sections = parsedData.script.split('\n\n');
+              finalContent = sections.map((section: string, index: number) => {
+                const match = section.match(/^(\d{2}:\d{2}):\s*(.+)$/);
+                if (match) {
+                  const titleMatch = match[2].match(/^([^.,:]+)/);
+                  const title = titleMatch ? titleMatch[1].trim().toUpperCase() : `SECTION ${index + 1}`;
+                  return `<p><strong>${match[1]} - ${title}</strong></p><p>${match[2]}</p>`;
+                }
+                return `<p>${section}</p>`;
+              }).join('<br>');
+              
+              setParsedSections(sections.map((section: string) => {
+                const match = section.match(/^(\d{2}:\d{2}):\s*(.+)$/);
+                if (match) {
+                  return { timestamp: match[1], content: match[2] };
+                }
+                return null;
+              }).filter(Boolean));
+            } else {
+              finalContent = originalScript;
+            }
+          }
+          setScriptContent(finalContent);
+          
+          setDocumentTitle(parsedData.title || 'Generated Script');
+          setStorylineData(parsedData.storyline || parsedData.storyline_structure || null);
+          setTargetDuration(parsedData.targetDuration || 1500);
+          setFullScriptData(parsedData); // Store full data for image generation
+          
+          // Save to Firestore using sync utility
+          try {
+            const savedId = await saveScript({
+              content: finalContent,
+              title: parsedData.title || 'Generated Script',
+              script: parsedData.script,
+              storyline: parsedData.storyline,
+              targetDuration: parsedData.targetDuration || 1500,
+              fullData: parsedData
+            });
+            
+            if (savedId) {
+              newScriptId = savedId;
+              setScriptId(newScriptId);
+            }
+          } catch (error) {
+            console.error('Error saving script to Firestore:', error);
+            newScriptId = `script-${Date.now()}`;
+            setScriptId(newScriptId);
+          }
+        } catch (e) {
+          console.error('Error parsing data:', e);
+          newScriptId = `script-${Date.now()}`;
+          setScriptId(newScriptId);
+        }
+      } else {
+        // Check if we have a script ID in URL params to load existing script
+        const existingScriptId = searchParams.get('id');
+        if (existingScriptId) {
+          try {
+            const scriptData = await loadScript(existingScriptId);
+            if (scriptData) {
+              setScriptContent(scriptData.content || '');
+              setDocumentTitle(scriptData.title || 'What do you want to create today?');
+              setStorylineData(scriptData.storyline || null);
+              setTargetDuration(scriptData.targetDuration || 1500);
+              setFullScriptData(scriptData.fullData || null);
+              setParsedSections(scriptData.script || []);
+              setScriptId(existingScriptId);
+            }
+          } catch (error) {
+            console.error('Error loading script:', error);
+          }
+        } else {
+          // Generate a new script ID
+          newScriptId = `script-${Date.now()}`;
+          setScriptId(newScriptId);
         }
       }
-    });
+    };
 
-    // Initialize script in Firestore
-    setDoc(scriptRef, {
-      content: scriptContent,
-      title: documentTitle,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
-
-    return () => unsubscribe();
+    initializeScript();
   }, []);
 
-  const updateScript = async (newContent: string) => {
+  const updateScriptContent = async (newContent: string) => {
     setScriptContent(newContent);
     
     if (scriptId) {
-      const scriptRef = doc(db, 'scripts', scriptId);
-      await setDoc(scriptRef, {
-        content: newContent,
-        updatedAt: serverTimestamp()
-      }, { merge: true });
+      // Use auto-save with 2 second delay to avoid too many requests
+      autoSave(scriptId, { content: newContent }, 2000);
     }
   };
 
@@ -80,11 +154,8 @@ export default function DocPage() {
     setDocumentTitle(newTitle);
     
     if (scriptId) {
-      const scriptRef = doc(db, 'scripts', scriptId);
-      await setDoc(scriptRef, {
-        title: newTitle,
-        updatedAt: serverTimestamp()
-      }, { merge: true });
+      // Save title immediately since it's less frequent
+      await updateScript(scriptId, { title: newTitle });
     }
   };
 
@@ -103,7 +174,7 @@ export default function DocPage() {
         isListening={isListening}
         setIsListening={setIsListening}
         scriptId={scriptId}
-        onScriptUpdate={updateScript}
+        onScriptUpdate={updateScriptContent}
       />
       
       <div className="flex-1 flex relative">
@@ -136,6 +207,19 @@ export default function DocPage() {
               </svg>
               Timeline
             </button>
+            <button
+              onClick={() => setViewMode('images')}
+              className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-2 text-sm ${
+                viewMode === 'images' 
+                  ? 'bg-gray-900 text-white' 
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              Images
+            </button>
           </div>
           
           {viewMode === 'doc' && storylineData && (
@@ -154,53 +238,90 @@ export default function DocPage() {
         {viewMode === 'doc' ? (
           <main className={`flex-1 flex justify-center pt-8 pb-16 transition-all duration-300 ${
             isThinkingPanelOpen ? 'pr-[320px]' : ''
-          } ${showStoryline ? 'pl-[400px]' : ''}`}>
+          } ${showStoryline && (storylineData || parsedSections.length > 0) ? 'pl-[300px]' : ''}`}>
             <DocumentEditor
               content={scriptContent}
-              onChange={updateScript}
+              onChange={updateScriptContent}
             />
           </main>
-        ) : (
+        ) : viewMode === 'timeline' ? (
           <main className="flex-1 pt-16">
             <Timeline
               script={scriptContent}
               totalDuration={targetDuration}
             />
           </main>
+        ) : (
+          <main className="flex-1 pt-16 px-8">
+            <ScriptImageGenerator
+              scriptData={fullScriptData}
+              onImagesGenerated={(updatedScript) => {
+                console.log('Images generated:', updatedScript);
+              }}
+            />
+          </main>
         )}
 
-        {viewMode === 'doc' && showStoryline && storylineData && (
-          <div className="fixed left-0 top-16 bottom-0 w-[400px] bg-white border-r border-gray-200 overflow-y-auto p-6">
-            <h2 className="text-xl font-light mb-6 text-gray-900">Storyline</h2>
-            <div className="space-y-6">
-              {storylineData.sections?.map((section: any, index: number) => (
-                <div key={index} className="border-l-2 border-gray-300 pl-4">
-                  <h3 className="font-medium text-base mb-2 text-gray-900">{section.nom}</h3>
-                  <p className="text-sm text-gray-600 mb-2">
-                    Duration: {section.duree_sec || section.duree_max_sec || section.duree_moyenne_sec}s
-                  </p>
-                  {section.objectifs && (
-                    <ul className="list-disc list-inside text-sm text-gray-700">
-                      {section.objectifs.map((obj: string, i: number) => (
-                        <li key={i}>{obj}</li>
-                      ))}
-                    </ul>
-                  )}
-                  {section.contenu && (
-                    <p className="text-sm text-gray-700 mt-2">{section.contenu}</p>
-                  )}
-                  {section.acts && (
-                    <div className="mt-2 space-y-2">
-                      {section.acts.map((act: any, i: number) => (
-                        <div key={i} className="ml-4 p-2 bg-gray-50 rounded-sm">
-                          <p className="font-medium text-sm">{act.acte}</p>
-                          <p className="text-xs text-gray-600">{act.contenu}</p>
-                        </div>
-                      ))}
+        {viewMode === 'doc' && showStoryline && (storylineData || parsedSections.length > 0) && (
+          <div className="fixed left-0 top-16 bottom-0 w-[300px] bg-[#F8F9FA] border-r border-gray-300 overflow-y-auto">
+            <div className="p-4 border-b border-gray-300 bg-white">
+              <div className="flex items-center justify-between">
+                <h2 className="text-base font-medium text-gray-900">Outline</h2>
+                <button
+                  onClick={() => setShowStoryline(false)}
+                  className="p-1 hover:bg-gray-100 rounded"
+                >
+                  <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div className="p-4 space-y-3">
+              {storylineData?.sections?.map((section: any, index: number) => (
+                <div key={index} className="cursor-pointer hover:bg-gray-100 rounded p-2 transition-colors">
+                  <div className="flex items-start gap-2">
+                    <span className="text-sm text-gray-500 mt-0.5">{index + 1}.</span>
+                    <div className="flex-1">
+                      <h3 className="text-sm font-medium text-gray-900 uppercase">{section.nom}</h3>
+                      <p className="text-xs text-gray-600 mt-1">
+                        {section.duree_sec || section.duree_max_sec || section.duree_moyenne_sec}s
+                      </p>
+                      {section.objectifs && section.objectifs.length > 0 && (
+                        <ul className="mt-1 space-y-0.5">
+                          {section.objectifs.slice(0, 2).map((obj: string, i: number) => (
+                            <li key={i} className="text-xs text-gray-600 pl-3 relative">
+                              <span className="absolute left-0">•</span>
+                              {obj}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
               ))}
+              
+              {/* If no sections but we have parsed sections from script */}
+              {(!storylineData?.sections || storylineData?.sections?.length === 0) && parsedSections.length > 0 && (
+                <>
+                  {parsedSections.map((section: any, index: number) => (
+                    <div key={index} className="cursor-pointer hover:bg-gray-100 rounded p-2 transition-colors">
+                      <div className="flex items-start gap-2">
+                        <span className="text-sm text-gray-500 mt-0.5">{index + 1}.</span>
+                        <div className="flex-1">
+                          <h3 className="text-sm font-medium text-gray-900">
+                            {section.timestamp}
+                          </h3>
+                          <p className="text-xs text-gray-600 mt-1 line-clamp-2">
+                            {section.content}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
           </div>
         )}

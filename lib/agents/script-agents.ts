@@ -1,5 +1,6 @@
 import { Agent } from '@openai/agents';
 import { mockScripts } from '../mock-data';
+import { createYouTubeCaptionsClient, YouTubeCaptionsClient } from '../mcp/youtube-captions-client';
 
 // Type definitions for agent events
 export interface AgentThought {
@@ -42,7 +43,8 @@ export class AgentEventEmitter {
 }
 
 // Script Research Agent
-export const createResearchAgent = (emitter: AgentEventEmitter) => {
+export const createResearchAgent = (emitter: AgentEventEmitter, youtubeClient?: YouTubeCaptionsClient) => {
+  const ytClient = youtubeClient || createYouTubeCaptionsClient();
   const agent = new Agent({
     name: "Research Agent",
     instructions: `You are a research specialist for video script creation. Your role is to:
@@ -72,23 +74,128 @@ export const createResearchAgent = (emitter: AgentEventEmitter) => {
             type: 'action'
           });
 
-          // Simulate YouTube search
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          const mockResults = [
-            { title: `Introduction to ${query}`, views: '1.2M', channel: 'TechExplained' },
-            { title: `${query}: Complete Guide`, views: '800K', channel: 'LearnHub' },
-            { title: `The Future of ${query}`, views: '500K', channel: 'FutureTech' }
-          ];
+          try {
+            const videos = await ytClient.searchVideos(query, max_results);
+            
+            emitter.emit('thought', {
+              agentName: 'Research Agent',
+              thought: `Found ${videos.length} relevant YouTube videos. Analyzing content patterns...`,
+              timestamp: Date.now(),
+              type: 'observation'
+            });
 
+            return videos.map(video => ({
+              id: video.id,
+              title: video.title,
+              views: video.viewCount || 'N/A',
+              channel: video.channelTitle,
+              description: video.description,
+              thumbnailUrl: video.thumbnailUrl,
+              publishedAt: video.publishedAt,
+              duration: video.duration
+            }));
+          } catch (error) {
+            emitter.emit('thought', {
+              agentName: 'Research Agent',
+              thought: `YouTube search failed: ${error.message}. Using fallback data...`,
+              timestamp: Date.now(),
+              type: 'observation'
+            });
+
+            // Fallback to mock data
+            const mockResults = [
+              { title: `Introduction to ${query}`, views: '1.2M', channel: 'TechExplained' },
+              { title: `${query}: Complete Guide`, views: '800K', channel: 'LearnHub' },
+              { title: `The Future of ${query}`, views: '500K', channel: 'FutureTech' }
+            ];
+
+            return mockResults;
+          }
+        }
+      },
+      {
+        name: "get_youtube_captions",
+        description: "Get captions and transcript from a YouTube video",
+        parameters: {
+          type: "object",
+          properties: {
+            video_id: { type: "string", description: "YouTube video ID" },
+            analyze: { type: "boolean", description: "Whether to analyze the content" }
+          },
+          required: ["video_id"]
+        },
+        handler: async ({ video_id, analyze = false }) => {
           emitter.emit('thought', {
             agentName: 'Research Agent',
-            thought: `Found ${mockResults.length} relevant YouTube videos. Analyzing content patterns...`,
+            thought: `Fetching captions for YouTube video: ${video_id}...`,
             timestamp: Date.now(),
-            type: 'observation'
+            type: 'action'
           });
 
-          return mockResults;
+          try {
+            const captionsData = await ytClient.getVideoWithCaptions(video_id);
+            
+            emitter.emit('thought', {
+              agentName: 'Research Agent',
+              thought: `Retrieved ${captionsData.captions.length} caption segments (${captionsData.fullTranscript.length} characters)`,
+              timestamp: Date.now(),
+              type: 'observation'
+            });
+
+            let analysis = null;
+            if (analyze) {
+              emitter.emit('thought', {
+                agentName: 'Research Agent',
+                thought: 'Analyzing video content for key insights...',
+                timestamp: Date.now(),
+                type: 'action'
+              });
+
+              const analysisPrompt = `Analyze this YouTube video transcript and extract key insights for script creation:
+Title: ${captionsData.video.title}
+Channel: ${captionsData.video.channelTitle}
+
+Transcript: ${captionsData.fullTranscript}
+
+Provide:
+1. Main topics and themes
+2. Interesting facts or statistics mentioned
+3. Engaging hooks or storytelling elements
+4. Key quotes or memorable moments
+5. Content structure and pacing insights`;
+
+              analysis = await ytClient.generateResponse(analysisPrompt);
+              
+              emitter.emit('thought', {
+                agentName: 'Research Agent',
+                thought: 'Content analysis completed. Extracted key insights for script development.',
+                timestamp: Date.now(),
+                type: 'observation'
+              });
+            }
+
+            return {
+              video: captionsData.video,
+              transcript: captionsData.fullTranscript,
+              captions: captionsData.captions,
+              analysis: analysis,
+              wordCount: captionsData.fullTranscript.split(' ').length,
+              duration: captionsData.captions.length > 0 ? 
+                Math.max(...captionsData.captions.map(c => c.start + c.duration)) : 0
+            };
+          } catch (error) {
+            emitter.emit('thought', {
+              agentName: 'Research Agent',
+              thought: `Failed to fetch captions: ${error.message}`,
+              timestamp: Date.now(),
+              type: 'observation'
+            });
+
+            return {
+              error: error.message,
+              video_id: video_id
+            };
+          }
         }
       },
       {
@@ -364,8 +471,8 @@ export const createWritingAgent = (emitter: AgentEventEmitter) => {
 };
 
 // Coordinator Agent (Main orchestrator)
-export const createCoordinatorAgent = (emitter: AgentEventEmitter) => {
-  const researchAgent = createResearchAgent(emitter);
+export const createCoordinatorAgent = (emitter: AgentEventEmitter, youtubeClient?: YouTubeCaptionsClient) => {
+  const researchAgent = createResearchAgent(emitter, youtubeClient);
   const structureAgent = createStructureAgent(emitter);
   const writingAgent = createWritingAgent(emitter);
 

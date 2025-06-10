@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { mockScripts } from '@/lib/mock-data';
-import { sendAgentEvent } from '../agent-stream/route';
+import { sendAgentEvent, sendYouTubeEvent } from '../agent-stream/route';
 import { adminDb } from '@/lib/firebase-admin';
+import { createYouTubeCaptionsClient } from '@/lib/mcp/youtube-captions-client';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -126,34 +127,134 @@ export async function POST(request: NextRequest) {
     
     const stream = new ReadableStream({
       async start(controller) {
+        const encoder = new TextEncoder();
+        let isStreamClosed = false;
+        
+        const safeEnqueue = (data: any) => {
+          try {
+            if (!isStreamClosed && controller.desiredSize !== null) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+            }
+          } catch (error) {
+            console.error('Error sending stream data:', error);
+            isStreamClosed = true;
+          }
+        };
+        
         try {
           // Start agent thinking simulation if sessionId provided
           if (sessionId) {
             simulateAgentThinking(sessionId, prompt, targetDuration).catch(console.error);
           }
 
-          // Simulate initial MCP server results
-          if (mcpServer === 'youtube' && youtubeKey) {
-            const mockYoutubeResults = [
-              {
-                type: 'youtube',
-                title: `Advanced Guide: ${prompt.substring(0, 30)}`,
-                description: 'Comprehensive tutorial with expert insights...',
-                thumbnail: 'https://via.placeholder.com/320x180',
-                subtitles: true
-              },
-              {
-                type: 'youtube',
-                title: `${prompt.substring(0, 20)} Explained`,
-                description: 'Deep dive into the topic...',
-                thumbnail: 'https://via.placeholder.com/320x180',
-                subtitles: true
+          // Real YouTube MCP server integration
+          let youtubeResults = [];
+          if (mcpServer === 'youtube') {
+            try {
+              const youtubeClient = createYouTubeCaptionsClient();
+              
+              // Send YouTube search start event
+              if (sessionId) {
+                sendYouTubeEvent(sessionId, 'search', { query: prompt, status: 'started' });
               }
-            ];
+              
+              // Search for relevant videos
+              const videos = await youtubeClient.searchVideos(prompt, 3);
+              
+              for (const video of videos) {
+                const youtubeResult = {
+                  type: 'youtube',
+                  id: video.id,
+                  title: video.title,
+                  description: video.description,
+                  thumbnail: video.thumbnailUrl,
+                  channel: video.channelTitle,
+                  publishedAt: video.publishedAt,
+                  duration: video.duration,
+                  subtitles: true
+                };
+                
+                youtubeResults.push(youtubeResult);
+                safeEnqueue(youtubeResult);
+                
+                if (sessionId) {
+                  sendYouTubeEvent(sessionId, 'search', { 
+                    video: youtubeResult, 
+                    status: 'video_found',
+                    totalFound: videos.length 
+                  });
+                }
+                
+                await new Promise(resolve => setTimeout(resolve, 500));
+              }
+              
+              // Get captions for the first video for context
+              if (videos.length > 0) {
+                try {
+                  if (sessionId) {
+                    sendYouTubeEvent(sessionId, 'captions', { 
+                      videoId: videos[0].id, 
+                      status: 'fetching' 
+                    });
+                  }
+                  
+                  const captionsData = await youtubeClient.getVideoWithCaptions(videos[0].id);
+                  
+                  if (sessionId) {
+                    sendYouTubeEvent(sessionId, 'captions', { 
+                      videoId: videos[0].id, 
+                      status: 'completed',
+                      wordCount: captionsData.fullTranscript.split(' ').length,
+                      duration: captionsData.captions.length
+                    });
+                  }
+                  
+                  // Store captions for script generation context
+                  youtubeResults[0].transcript = captionsData.fullTranscript.substring(0, 2000); // Limit length
+                } catch (captionError) {
+                  console.warn('Failed to fetch captions:', captionError);
+                  if (sessionId) {
+                    sendYouTubeEvent(sessionId, 'captions', { 
+                      videoId: videos[0].id, 
+                      status: 'failed', 
+                      error: captionError.message 
+                    });
+                  }
+                }
+              }
+              
+              if (sessionId) {
+                sendYouTubeEvent(sessionId, 'search', { 
+                  status: 'completed', 
+                  totalVideos: videos.length 
+                });
+              }
+              
+            } catch (error) {
+              console.error('YouTube MCP error:', error);
+              if (sessionId) {
+                sendYouTubeEvent(sessionId, 'search', { 
+                  status: 'failed', 
+                  error: error.message 
+                });
+              }
+              
+              // Fallback to mock data
+              const mockYoutubeResults = [
+                {
+                  type: 'youtube',
+                  title: `Advanced Guide: ${prompt.substring(0, 30)}`,
+                  description: 'Comprehensive tutorial with expert insights...',
+                  thumbnail: 'https://via.placeholder.com/320x180',
+                  subtitles: true
+                }
+              ];
 
-            for (const result of mockYoutubeResults) {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(result)}\n\n`));
-              await new Promise(resolve => setTimeout(resolve, 800));
+              for (const result of mockYoutubeResults) {
+                youtubeResults.push(result);
+                safeEnqueue(result);
+                await new Promise(resolve => setTimeout(resolve, 800));
+              }
             }
           }
 
@@ -188,6 +289,11 @@ export async function POST(request: NextRequest) {
                 targetDuration,
                 mcpServer,
                 searchEnabled,
+                youtubeContext: youtubeResults.length > 0 ? {
+                  videosFound: youtubeResults.length,
+                  primaryVideo: youtubeResults[0],
+                  hasTranscript: !!youtubeResults[0]?.transcript
+                } : null,
                 createdAt: new Date().toISOString(),
                 sessionId,
                 _testMode: true,
@@ -207,7 +313,7 @@ export async function POST(request: NextRequest) {
                   }
                 };
                 
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(mockResult)}\n\n`));
+                safeEnqueue(mockResult);
               } catch (error) {
                 console.error('Error saving to Firestore:', error);
                 // Still send the result even if save fails
@@ -216,7 +322,7 @@ export async function POST(request: NextRequest) {
                   content: scriptData
                 };
                 
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(mockResult)}\n\n`));
+                safeEnqueue(mockResult);
               }
             } else {
               // Real OpenAI API call
@@ -229,7 +335,7 @@ export async function POST(request: NextRequest) {
                   },
                   {
                     role: "user",
-                    content: `Create a video script based on: ${prompt}\nTarget duration: ${targetDuration} seconds\n\nReturn JSON with script, title, and storyline structure.`
+                    content: `Create a video script based on: ${prompt}\nTarget duration: ${targetDuration} seconds\n${youtubeResults.length > 0 && youtubeResults[0].transcript ? `\n\nYouTube Research Context:\nFound ${youtubeResults.length} relevant videos. Primary video: "${youtubeResults[0].title}" by ${youtubeResults[0].channel}\nTranscript excerpt: ${youtubeResults[0].transcript.substring(0, 500)}...\n\nUse this research to enhance your script with accurate information and insights.` : ''}\n\nReturn JSON with script, title, and storyline structure.`
                   }
                 ],
                 temperature: 0.7,
@@ -243,6 +349,11 @@ export async function POST(request: NextRequest) {
                 targetDuration,
                 mcpServer,
                 searchEnabled,
+                youtubeContext: youtubeResults.length > 0 ? {
+                  videosFound: youtubeResults.length,
+                  primaryVideo: youtubeResults[0],
+                  hasTranscript: !!youtubeResults[0]?.transcript
+                } : null,
                 createdAt: new Date().toISOString(),
                 sessionId,
                 _agentGenerated: true
@@ -261,7 +372,7 @@ export async function POST(request: NextRequest) {
                   }
                 };
                 
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(result)}\n\n`));
+                safeEnqueue(result);
               } catch (error) {
                 console.error('Error saving to Firestore:', error);
                 // Still send the result even if save fails
@@ -270,14 +381,16 @@ export async function POST(request: NextRequest) {
                   content: scriptData
                 };
                 
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(result)}\n\n`));
+                safeEnqueue(result);
               }
             }
           }
 
+          isStreamClosed = true;
           controller.close();
         } catch (error) {
           console.error('Stream error:', error);
+          isStreamClosed = true;
           controller.error(error);
         }
       },

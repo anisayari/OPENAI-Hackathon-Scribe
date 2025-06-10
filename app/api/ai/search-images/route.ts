@@ -241,9 +241,7 @@ async function generateAIImage(prompt: string, style: string): Promise<ImageResu
 
 async function saveSearchToFirebase(sessionId: string, query: string, results: ImageResult[]) {
   try {
-    await adminDb.collection('imageSea
-
-').doc(sessionId).collection('searches').add({
+    await adminDb.collection('imageSearches').doc(sessionId).collection('searches').add({
       query,
       results: results.map(r => ({
         ...r,

@@ -9,8 +9,9 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@openai/agents": "^0.0.4",
+    "@openai/agents": "^0.0.5",
     "@types/lodash": "^4.17.17",
+    "ai": "^4.3.16",
     "firebase": "^11.9.0",
     "firebase-admin": "^13.4.0",
     "lodash": "^4.17.21",
@@ -22,7 +23,9 @@
     "pdf2pic": "^3.2.0",
     "pdfjs-dist": "^5.3.31",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "zod": "^3.25.57",
+    "zod-to-json-schema": "^3.25.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

@@ -18,6 +18,7 @@ export default function Home() {
   const [pastProjects, setPastProjects] = useState<any[]>([])
   const [showNewProject, setShowNewProject] = useState(true)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [useAdvancedGeneration, setUseAdvancedGeneration] = useState(false)
   
   const testModePrompt = `I want to create a video about the evolution of humanoid robots from science fiction to economic revolution. The video should explore the history from early mechanical automatons to modern AI-powered humanoids like NVIDIA's Project GR00T and Tesla's Optimus. I'd like to cover key milestones, breakthrough technologies, and analyze the profound impact on the global economy, job markets, and society as we transition into an era where humanoid robots become commonplace.`
   const [results, setResults] = useState<any[]>([])
@@ -49,7 +50,11 @@ export default function Home() {
     setShowAgentPanel(true);
 
     try {
-      const response = await fetch('/api/ai/explore-topic-agents', {
+      const endpoint = useAdvancedGeneration 
+        ? '/api/ai/generate-advanced-script'
+        : '/api/ai/explore-topic-agents';
+        
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -697,6 +702,20 @@ I want to create a biographical video about Marie Curie. The video should explor
                 </div>
               )}
               
+              {/* Advanced Mode Indicator */}
+              {useAdvancedGeneration && (
+                <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                  <div className="flex items-center">
+                    <svg className="w-5 h-5 text-purple-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                    <span className="text-sm text-purple-800">
+                      Advanced AI Mode - Multi-agent system with web research
+                    </span>
+                  </div>
+                </div>
+              )}
+              
               {/* Options below textarea */}
               <div className="mt-6 p-4 bg-white rounded-lg border border-gray-200">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -780,6 +799,23 @@ I want to create a biographical video about Marie Curie. The video should explor
                         <span
                           className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
                             testMode ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                    
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium text-gray-700">Advanced AI</label>
+                      <button
+                        onClick={() => setUseAdvancedGeneration(!useAdvancedGeneration)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          useAdvancedGeneration ? 'bg-purple-600' : 'bg-gray-300'
+                        }`}
+                        title="Use advanced multi-agent system with research capabilities"
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            useAdvancedGeneration ? 'translate-x-6' : 'translate-x-1'
                           }`}
                         />
                       </button>

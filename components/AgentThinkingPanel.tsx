@@ -27,6 +27,8 @@ export default function AgentThinkingPanel({ isVisible, sessionId }: AgentThinki
   const [activeAgent, setActiveAgent] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [inspirationalText, setInspirationalText] = useState('');
+  const [currentWordIndex, setCurrentWordIndex] = useState(0);
   const thoughtsEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -77,6 +79,50 @@ export default function AgentThinkingPanel({ isVisible, sessionId }: AgentThinki
     thoughtsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [thoughts]);
 
+  // Inspirational text animation
+  useEffect(() => {
+    if (thoughts.length > 0 || !isVisible) return;
+
+    const inspirationalMessages = [
+      "I'm assembling my team of expert agents...",
+      "Together, we'll create something extraordinary...",
+      "Analyzing your vision and crafting the perfect narrative...",
+      "Our AI agents are collaborating to bring your ideas to life...",
+      "Preparing to transform your concept into compelling content...",
+      "Let's create a masterpiece together..."
+    ];
+
+    const fullText = inspirationalMessages.join(' ');
+    const words = fullText.split(' ');
+    
+    const interval = setInterval(() => {
+      setCurrentWordIndex(prev => {
+        if (prev >= words.length - 1) {
+          return 0; // Loop back to start
+        }
+        return prev + 1;
+      });
+    }, 200); // Add a new word every 200ms
+
+    return () => clearInterval(interval);
+  }, [thoughts.length, isVisible]);
+
+  useEffect(() => {
+    const inspirationalMessages = [
+      "I'm assembling my team of expert agents...",
+      "Together, we'll create something extraordinary...",
+      "Analyzing your vision and crafting the perfect narrative...",
+      "Our AI agents are collaborating to bring your ideas to life...",
+      "Preparing to transform your concept into compelling content...",
+      "Let's create a masterpiece together..."
+    ];
+
+    const fullText = inspirationalMessages.join(' ');
+    const words = fullText.split(' ');
+    
+    setInspirationalText(words.slice(0, currentWordIndex + 1).join(' '));
+  }, [currentWordIndex]);
+
   const getThoughtIcon = (type: AgentThought['type']) => {
     switch (type) {
       case 'reasoning':
@@ -98,6 +144,8 @@ export default function AgentThinkingPanel({ isVisible, sessionId }: AgentThinki
       'Research Agent': 'bg-blue-100 border-blue-300',
       'Structure Agent': 'bg-green-100 border-green-300',
       'Writing Agent': 'bg-yellow-100 border-yellow-300',
+      'Advanced Research Agent': 'bg-indigo-100 border-indigo-300',
+      'Showrunner Agent': 'bg-pink-100 border-pink-300',
     };
     return colors[agentName as keyof typeof colors] || 'bg-gray-100 border-gray-300';
   };
@@ -145,13 +193,51 @@ export default function AgentThinkingPanel({ isVisible, sessionId }: AgentThinki
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
             {thoughts.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full">
-                <div className="relative">
-                  <div className="w-24 h-24 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full animate-spin" />
-                  <div className="absolute inset-2 bg-white rounded-full" />
-                  <div className="absolute inset-4 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full animate-pulse" />
+                <div className="relative mb-8">
+                  <div className="w-32 h-32 relative">
+                    {/* Outer rotating ring */}
+                    <div className="absolute inset-0 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 rounded-full animate-spin" />
+                    <div className="absolute inset-1 bg-white rounded-full" />
+                    
+                    {/* Inner pulsing core */}
+                    <div className="absolute inset-4 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full animate-pulse" />
+                    
+                    {/* Orbiting dots */}
+                    <div className="absolute inset-0 animate-spin" style={{ animationDuration: '3s' }}>
+                      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3 h-3 bg-blue-400 rounded-full -mt-1.5" />
+                      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-3 h-3 bg-purple-400 rounded-full -mb-1.5" />
+                      <div className="absolute left-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-pink-400 rounded-full -ml-1.5" />
+                      <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-indigo-400 rounded-full -mr-1.5" />
+                    </div>
+                  </div>
                 </div>
-                <p className="mt-6 text-lg text-gray-600">Initializing AI agents...</p>
-                <p className="mt-2 text-sm text-gray-500">This may take a few moments</p>
+                
+                <div className="text-center max-w-2xl px-8">
+                  <h3 className="text-2xl font-bold text-gray-800 mb-4">
+                    Initializing AI Agents
+                  </h3>
+                  
+                  <div className="min-h-[80px] flex items-center justify-center">
+                    <p className="text-lg text-gray-600 leading-relaxed animate-fade-in">
+                      {inspirationalText}<span className="animate-pulse">|</span>
+                    </p>
+                  </div>
+                  
+                  <div className="mt-6 flex items-center justify-center gap-8 text-sm text-gray-500">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                      <span>Systems Online</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+                      <span>Agents Activating</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" />
+                      <span>Ready to Create</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             ) : (
               thoughts.map((thought, index) => (
@@ -185,13 +271,15 @@ export default function AgentThinkingPanel({ isVisible, sessionId }: AgentThinki
           <div className="w-80 border-l border-gray-200 bg-gray-50 p-6">
             <h3 className="text-lg font-semibold text-gray-800 mb-4">Active Agents</h3>
             <div className="space-y-4">
-              {['Coordinator Agent', 'Research Agent', 'Structure Agent', 'Writing Agent'].map((agent) => {
+              {['Coordinator Agent', 'Research Agent', 'Structure Agent', 'Writing Agent', 'Advanced Research Agent', 'Showrunner Agent'].map((agent) => {
                 const isActive = activeAgent === agent;
                 const agentStats = {
                   'Coordinator Agent': { icon: '🎯', color: 'purple', tasks: thoughts.filter(t => t.agentName === agent).length },
                   'Research Agent': { icon: '🔍', color: 'blue', tasks: thoughts.filter(t => t.agentName === agent).length },
                   'Structure Agent': { icon: '📋', color: 'green', tasks: thoughts.filter(t => t.agentName === agent).length },
                   'Writing Agent': { icon: '✍️', color: 'yellow', tasks: thoughts.filter(t => t.agentName === agent).length },
+                  'Advanced Research Agent': { icon: '🔬', color: 'indigo', tasks: thoughts.filter(t => t.agentName === agent).length },
+                  'Showrunner Agent': { icon: '🎬', color: 'pink', tasks: thoughts.filter(t => t.agentName === agent).length },
                 };
                 const stats = agentStats[agent as keyof typeof agentStats];
                 
