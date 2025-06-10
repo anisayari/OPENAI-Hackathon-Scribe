@@ -9,7 +9,6 @@ export default function Home() {
   const router = useRouter()
   const [prompt, setPrompt] = useState('')
   const [mcpServer, setMcpServer] = useState('youtube')
-  const [youtubeKey, setYoutubeKey] = useState('')
   const [targetDuration, setTargetDuration] = useState(1500)
   const [searchEnabled, setSearchEnabled] = useState(true)
   const [customScripts, setCustomScripts] = useState<File[]>([])
@@ -60,7 +59,6 @@ export default function Home() {
         body: JSON.stringify({
           prompt: prompt.trim(),
           mcpServer,
-          youtubeKey,
           targetDuration,
           searchEnabled,
           testMode,
@@ -87,7 +85,12 @@ export default function Home() {
               if (data.type === 'youtube') {
                 setResults(prev => [...prev, data])
               } else if (data.type === 'final') {
-                router.push(`/doc?data=${encodeURIComponent(JSON.stringify(data.content))}`)
+                // If we have a scriptId, use it instead of passing all data in URL
+                if (data.content.scriptId) {
+                  router.push(`/doc?id=${data.content.scriptId}`)
+                } else {
+                  router.push(`/doc?data=${encodeURIComponent(JSON.stringify(data.content))}`)
+                }
               }
             } catch (e) {
               console.error('Error parsing SSE:', e)
@@ -227,9 +230,21 @@ export default function Home() {
   }
 
   const startRecording = async () => {
-    if (isRecording || isTranscribing) return;
+    console.log('🎤 [FRONTEND] startRecording called, current states:', {
+      isRecording,
+      isTranscribing,
+      isLoading,
+      isEnhancing
+    });
+    
+    if (isRecording || isTranscribing) {
+      console.log('🎤 [FRONTEND] Already recording or transcribing, aborting');
+      return;
+    }
     
     try {
+      console.log('🎤 [FRONTEND] Starting microphone access...');
+      
       // Clean up any existing resources first
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop())
@@ -240,10 +255,17 @@ export default function Home() {
       
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       streamRef.current = stream
+      console.log('🎤 [FRONTEND] ✅ Microphone access granted');
       
       const mediaRecorder = new MediaRecorder(stream)
       mediaRecorderRef.current = mediaRecorder
       chunksRef.current = []
+      
+      console.log('🎤 [FRONTEND] MediaRecorder created, supported types:', {
+        webm: MediaRecorder.isTypeSupported('audio/webm'),
+        mp4: MediaRecorder.isTypeSupported('audio/mp4'),
+        wav: MediaRecorder.isTypeSupported('audio/wav')
+      });
 
       // Set up audio visualization
       audioContextRef.current = new AudioContext()
@@ -262,6 +284,8 @@ export default function Home() {
       }
 
       mediaRecorder.onstop = async () => {
+        console.log('🎤 [FRONTEND] MediaRecorder stopped');
+        
         // Stop visualization
         if (animationFrameRef.current) {
           cancelAnimationFrame(animationFrameRef.current)
@@ -286,69 +310,131 @@ export default function Home() {
         
         // Check if recording was long enough
         const recordingDuration = recordingStartTimeRef.current ? Date.now() - recordingStartTimeRef.current : 0
+        console.log('🎤 [FRONTEND] Recording duration:', recordingDuration, 'ms');
+        console.log('🎤 [FRONTEND] Audio chunks collected:', chunksRef.current.length);
         
         // Process recording if we have data and it's long enough (at least 200ms)
         if (chunksRef.current.length > 0 && recordingDuration > 200) {
+          console.log('🎤 [FRONTEND] Processing audio recording...');
           setIsTranscribing(true)
+          
           const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' })
+          console.log('🎤 [FRONTEND] Audio blob created:', {
+            size: audioBlob.size,
+            type: audioBlob.type
+          });
+          
           const formData = new FormData()
           formData.append('audio', audioBlob, 'recording.webm')
 
           try {
+            console.log('🎤 [FRONTEND] Sending to transcription API...');
+            const transcribeStart = Date.now();
+            
             const response = await fetch('/api/audio/transcribe', {
               method: 'POST',
               body: formData,
             })
+            
+            const transcribeTime = Date.now() - transcribeStart;
+            console.log('🎤 [FRONTEND] Transcription API response received in', transcribeTime, 'ms, status:', response.status);
 
             if (response.ok) {
-              const { text } = await response.json()
-              if (text && text.trim()) {
-                const enhancedText = enhanceTranscription(text)
-                setPrompt(prev => prev + (prev ? '\n' : '') + enhancedText)
+              const responseData = await response.json()
+              console.log('🎤 [FRONTEND] ✅ Transcription successful:', {
+                text: responseData.text,
+                textLength: responseData.text?.length,
+                metadata: responseData.metadata
+              });
+              
+              if (responseData.text && responseData.text.trim()) {
+                console.log('🎤 [FRONTEND] Enhancing transcription...');
+                const enhancedText = enhanceTranscription(responseData.text)
+                console.log('🎤 [FRONTEND] Enhanced text:', enhancedText);
+                
+                console.log('🎤 [FRONTEND] Updating prompt state...');
+                setPrompt(prev => {
+                  const newPrompt = prev + (prev ? '\n' : '') + enhancedText;
+                  console.log('🎤 [FRONTEND] New prompt value:', newPrompt);
+                  return newPrompt;
+                });
+                
+                console.log('🎤 [FRONTEND] ✅ Prompt updated successfully');
+              } else {
+                console.warn('🎤 [FRONTEND] ⚠️ Empty transcription received');
               }
             } else {
               const error = await response.json()
-              console.error('Transcription failed:', error)
+              console.error('🎤 [FRONTEND] ❌ Transcription failed:', error);
               if (error.error && error.error.includes('too short')) {
-                // Don't show error for recordings that are too short
+                console.log('🎤 [FRONTEND] Recording too short error - not showing alert');
               } else {
                 alert('Failed to transcribe audio. Please try again.')
               }
             }
           } catch (error) {
-            console.error('Error transcribing:', error)
+            console.error('🎤 [FRONTEND] ❌ Error during transcription:', error)
+            alert('Error occurred during transcription. Please try again.')
           } finally {
+            console.log('🎤 [FRONTEND] Setting isTranscribing to false');
             setIsTranscribing(false)
           }
         } else if (recordingDuration > 0 && recordingDuration <= 200) {
-          // Recording was too short, don't process
-          console.log('Recording too short, ignoring')
+          console.log('🎤 [FRONTEND] Recording too short, ignoring')
+        } else {
+          console.log('🎤 [FRONTEND] No audio chunks or invalid duration, ignoring')
         }
         
         // Reset recorder reference
         mediaRecorderRef.current = null
+        console.log('🎤 [FRONTEND] MediaRecorder reference cleared');
       }
 
+      console.log('🎤 [FRONTEND] Starting MediaRecorder...');
       mediaRecorder.start()
       setIsRecording(true)
       recordingStartTimeRef.current = Date.now()
+      console.log('🎤 [FRONTEND] ✅ Recording started at:', new Date().toISOString());
       
       // Start visualization
       requestAnimationFrame(visualizeAudio)
       
     } catch (error) {
-      console.error('Error accessing microphone:', error)
+      console.error('🎤 [FRONTEND] ❌ Error accessing microphone:', error)
       alert('Unable to access microphone')
       setIsRecording(false)
     }
   }
 
   const stopRecording = () => {
+    console.log('🎤 [FRONTEND] stopRecording called, recorder state:', {
+      recorderExists: !!mediaRecorderRef.current,
+      recorderState: mediaRecorderRef.current?.state,
+      isRecording
+    });
+    
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      console.log('🎤 [FRONTEND] Stopping MediaRecorder...');
       mediaRecorderRef.current.stop()
       setIsRecording(false)
+      console.log('🎤 [FRONTEND] MediaRecorder stop() called, isRecording set to false');
+    } else {
+      console.log('🎤 [FRONTEND] ⚠️ Cannot stop recording - recorder not in recording state');
     }
   }
+
+  // Track state changes for debugging
+  useEffect(() => {
+    console.log('🎤 [FRONTEND] State change - isRecording:', isRecording);
+  }, [isRecording]);
+  
+  useEffect(() => {
+    console.log('🎤 [FRONTEND] State change - isTranscribing:', isTranscribing);
+  }, [isTranscribing]);
+  
+  useEffect(() => {
+    console.log('🎤 [FRONTEND] State change - prompt length:', prompt.length, 'chars');
+  }, [prompt]);
 
   // Clean up on unmount
   useEffect(() => {
@@ -597,6 +683,14 @@ I want to create a biographical video about Marie Curie. The video should explor
                           )}
                         </button>
                         
+                        {/* Debug State Indicator */}
+                        {(isRecording || isTranscribing) && (
+                          <div className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-800">
+                            {isRecording && 'REC'}
+                            {isTranscribing && 'TRANSCRIBING'}
+                          </div>
+                        )}
+                        
                         {/* Audio Level Visualizer */}
                         {isRecording && (
                           <div className="flex items-center gap-0.5 px-2">
@@ -739,15 +833,6 @@ I want to create a biographical video about Marie Curie. The video should explor
                       </div>
                     </div>
 
-                    {mcpServer === 'youtube' && (
-                      <input
-                        type="text"
-                        placeholder="YouTube API Key"
-                        value={youtubeKey}
-                        onChange={(e) => setYoutubeKey(e.target.value)}
-                        className="w-full px-3 py-2 text-sm text-gray-900 placeholder-gray-400 bg-white border border-gray-300 rounded-md focus:border-gray-500 focus:outline-none"
-                      />
-                    )}
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">

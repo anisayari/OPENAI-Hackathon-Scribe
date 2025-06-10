@@ -24,8 +24,17 @@ if not firebase_admin._apps:
 
 db = firestore.client()
 
-# Initialize OpenAI client
-openai_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
+# Initialize OpenAI client (will be created when needed)
+openai_client = None
+
+def get_openai_client():
+    global openai_client
+    if openai_client is None:
+        api_key = os.environ.get('OPENAI_API_KEY')
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is not set")
+        openai_client = OpenAI(api_key=api_key)
+    return openai_client
 
 
 @functions_framework.http
@@ -96,7 +105,7 @@ def generate_image(request):
             enhanced_prompt = prompt
         
         # Generate image using DALL-E 3
-        response = openai_client.images.generate(
+        response = get_openai_client().images.generate(
             model=model,
             prompt=enhanced_prompt,
             size=size,
@@ -216,7 +225,7 @@ def generate_scene_variations(request):
             full_prompt = f"{scene_description}, {modifier}, {style} style"
             
             try:
-                response = openai_client.images.generate(
+                response = get_openai_client().images.generate(
                     model="dall-e-3",
                     prompt=full_prompt,
                     size="1024x1024",
@@ -340,7 +349,7 @@ def process_script_images(request):
                 enhanced_prompt = f"{text}, {style_modifier}"
                 
                 # Generate image
-                response = openai_client.images.generate(
+                response = get_openai_client().images.generate(
                     model="dall-e-3",
                     prompt=enhanced_prompt,
                     size="1024x1024",

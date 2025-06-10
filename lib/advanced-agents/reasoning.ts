@@ -21,14 +21,34 @@ const methodology = {
 };
 
 // This is the main function that will be called by our API route
-export function performReasoningAndScaffolding(input: ReasoningInput) {
+export async function performReasoningAndScaffolding(
+  topic: string,
+  angle: string,
+  webSearchResults?: ResearchResult,
+  exampleScriptText?: string
+) {
+  const input: ReasoningInput = {
+    topic,
+    angle,
+    webSearchResults,
+    exampleScriptText
+  };
+  
   const reasoningAgent = new Agent({
     name: 'ShowrunnerAgent',
     model: 'gpt-4o',
     instructions: `You are a world-class YouTube show-runner. Your mission is to create a complete and detailed production plan for a biographical video.
 - **Adherence to Methodology:** You must strictly follow the creative methodology provided.
 - **Synthesize Research:** Your primary job is to weave the specific facts, names, dates, and insights from the research results into every part of the production plan.
-- **Concrete & Actionable:** All fields must be filled with concrete, actionable ideas. For 'contenu', write a descriptive sentence. For 'visuals', suggest specific shots.
+- **Concrete & Actionable:** All fields must be filled with concrete, actionable ideas. 
+- **DETAILED CONTENT:** For 'contenu', write FULL PARAGRAPHS (150-200 words minimum) with complete sentences, not just short descriptions.
+- **COMPREHENSIVE SEQUENCES:** Each sequence must include:
+  - A detailed 'objectif' (50+ words) that thoroughly explains what this part accomplishes
+  - Substantial 'stake' descriptions (30+ words) explaining why viewers should care
+  - Rich 'payoff' descriptions (30+ words) detailing what viewers gain
+  - Detailed 'visuals' (50+ words) with specific shot descriptions, transitions, and effects
+- **Descriptive Objectives:** Each sequence's 'objectif' should be a clear, descriptive phrase that explains what this part of the video accomplishes (e.g., "Explore the early life and education of Marie Curie" instead of just "Background").
+- **LENGTH REQUIREMENTS:** The total production plan should be comprehensive and detailed, with each section containing substantial content.
 - **Output JSON Only:** The final output must be ONLY a valid JSON object that strictly adheres to the ProductionPlanSchema.
 
 ### CREATIVE METHODOLOGY ###

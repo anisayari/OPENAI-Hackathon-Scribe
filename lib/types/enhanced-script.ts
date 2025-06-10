@@ -164,9 +164,12 @@ function extractVisualThemes(section: any): string[] {
   // Extract from content
   if (section.contenu || section.content) {
     const content = section.contenu || section.content;
-    // Simple keyword extraction (can be improved)
-    const keywords = content.match(/\b[A-Z][a-z]+\b/g) || [];
-    themes.push(...keywords.slice(0, 2));
+    // Ensure content is a string before calling match
+    if (typeof content === 'string') {
+      // Simple keyword extraction (can be improved)
+      const keywords = content.match(/\b[A-Z][a-z]+\b/g) || [];
+      themes.push(...keywords.slice(0, 2));
+    }
   }
   
   return [...new Set(themes)]; // Remove duplicates

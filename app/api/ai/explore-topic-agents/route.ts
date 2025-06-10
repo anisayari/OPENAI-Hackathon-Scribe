@@ -3,7 +3,7 @@ import OpenAI from 'openai';
 import { mockScripts } from '@/lib/mock-data';
 import { sendAgentEvent, sendYouTubeEvent } from '../agent-stream/route';
 import { adminDb } from '@/lib/firebase-admin';
-import { createYouTubeCaptionsClient } from '@/lib/mcp/youtube-captions-client';
+import { searchYouTubeVideos } from '@/lib/advanced-agents/youtube-mcp-helper';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
   
   try {
-    const { prompt, mcpServer, youtubeKey, targetDuration, searchEnabled, testMode, sessionId } = await request.json();
+    const { prompt, mcpServer, targetDuration, searchEnabled, testMode, sessionId } = await request.json();
     
     const stream = new ReadableStream({
       async start(controller) {
@@ -151,27 +151,25 @@ export async function POST(request: NextRequest) {
           let youtubeResults = [];
           if (mcpServer === 'youtube') {
             try {
-              const youtubeClient = createYouTubeCaptionsClient();
-              
               // Send YouTube search start event
               if (sessionId) {
                 sendYouTubeEvent(sessionId, 'search', { query: prompt, status: 'started' });
               }
               
-              // Search for relevant videos
-              const videos = await youtubeClient.searchVideos(prompt, 3);
+              // Search for relevant videos using MCP integration
+              const videos = await searchYouTubeVideos(prompt, 3);
               
               for (const video of videos) {
                 const youtubeResult = {
                   type: 'youtube',
-                  id: video.id,
-                  title: video.title,
-                  description: video.description,
-                  thumbnail: video.thumbnailUrl,
-                  channel: video.channelTitle,
-                  publishedAt: video.publishedAt,
-                  duration: video.duration,
-                  subtitles: true
+                  id: video.id || video.videoId,
+                  title: video.title || video.snippet?.title,
+                  description: video.description || video.snippet?.description,
+                  thumbnail: video.thumbnailUrl || video.snippet?.thumbnails?.high?.url,
+                  channel: video.channelTitle || video.snippet?.channelTitle,
+                  publishedAt: video.publishedAt || video.snippet?.publishedAt,
+                  viewCount: video.statistics?.viewCount,
+                  likeCount: video.statistics?.likeCount
                 };
                 
                 youtubeResults.push(youtubeResult);
@@ -186,41 +184,6 @@ export async function POST(request: NextRequest) {
                 }
                 
                 await new Promise(resolve => setTimeout(resolve, 500));
-              }
-              
-              // Get captions for the first video for context
-              if (videos.length > 0) {
-                try {
-                  if (sessionId) {
-                    sendYouTubeEvent(sessionId, 'captions', { 
-                      videoId: videos[0].id, 
-                      status: 'fetching' 
-                    });
-                  }
-                  
-                  const captionsData = await youtubeClient.getVideoWithCaptions(videos[0].id);
-                  
-                  if (sessionId) {
-                    sendYouTubeEvent(sessionId, 'captions', { 
-                      videoId: videos[0].id, 
-                      status: 'completed',
-                      wordCount: captionsData.fullTranscript.split(' ').length,
-                      duration: captionsData.captions.length
-                    });
-                  }
-                  
-                  // Store captions for script generation context
-                  youtubeResults[0].transcript = captionsData.fullTranscript.substring(0, 2000); // Limit length
-                } catch (captionError) {
-                  console.warn('Failed to fetch captions:', captionError);
-                  if (sessionId) {
-                    sendYouTubeEvent(sessionId, 'captions', { 
-                      videoId: videos[0].id, 
-                      status: 'failed', 
-                      error: captionError.message 
-                    });
-                  }
-                }
               }
               
               if (sessionId) {
@@ -326,22 +289,88 @@ export async function POST(request: NextRequest) {
               }
             } else {
               // Real OpenAI API call
+              console.log('🎬 Generating comprehensive script with OpenAI...');
               const completion = await openai.chat.completions.create({
                 model: "gpt-4",
                 messages: [
                   {
                     role: "system",
-                    content: "You are an expert video script writer with deep knowledge of audience retention and storytelling."
+                    content: `You are an expert video script writer specializing in creating comprehensive, engaging YouTube scripts. You create detailed, well-structured scripts that captivate audiences from start to finish. Your scripts include:
+- Compelling hooks
+- Clear narrative structure
+- Specific visual descriptions
+- Natural transitions
+- Engaging storytelling
+- Call-to-actions`
                   },
                   {
                     role: "user",
-                    content: `Create a video script based on: ${prompt}\nTarget duration: ${targetDuration} seconds\n${youtubeResults.length > 0 && youtubeResults[0].transcript ? `\n\nYouTube Research Context:\nFound ${youtubeResults.length} relevant videos. Primary video: "${youtubeResults[0].title}" by ${youtubeResults[0].channel}\nTranscript excerpt: ${youtubeResults[0].transcript.substring(0, 500)}...\n\nUse this research to enhance your script with accurate information and insights.` : ''}\n\nReturn JSON with script, title, and storyline structure.`
+                    content: `Create a COMPREHENSIVE and DETAILED video script for: "${prompt}"
+
+Target Duration: ${targetDuration} seconds (${Math.floor(targetDuration / 60)} minutes)
+
+${youtubeResults.length > 0 && youtubeResults[0].transcript ? `
+YouTube Research Context:
+Found ${youtubeResults.length} relevant videos. 
+Primary video: "${youtubeResults[0].title}" by ${youtubeResults[0].channel}
+Transcript excerpt: ${youtubeResults[0].transcript.substring(0, 1000)}...
+
+Use this research to enhance your script with accurate information and insights.
+` : ''}
+
+REQUIREMENTS:
+1. The script must be FULLY DEVELOPED with complete sentences and paragraphs
+2. Each section should be 3-5 paragraphs MINIMUM (150-300 words per section)
+3. Include specific details, examples, and storytelling elements
+4. Add [VISUAL] cues for what should be shown on screen
+5. Include natural transitions between sections
+6. The total script MUST be at least ${Math.floor(targetDuration * 2.5)} words (approximately ${Math.floor(targetDuration * 2.5 / 150)} paragraphs)
+7. DO NOT use placeholder text or generic content - write actual, detailed script content
+
+Return a JSON object with this EXACT structure:
+{
+  "title": "Engaging title for the video",
+  "script": [
+    {
+      "timestamp": "0:00-0:15",
+      "section": "Hook",
+      "content": "Full paragraph of engaging opening content that immediately captures attention. Include a compelling question or statement. [VISUAL: Describe opening shot]. Continue with more sentences to fully develop the hook..."
+    },
+    {
+      "timestamp": "0:15-1:00", 
+      "section": "Introduction",
+      "content": "Complete introduction paragraph explaining what viewers will learn. Set expectations and build anticipation. [VISUAL: Describe visuals]. Add more context and background information..."
+    },
+    // Continue with all sections...
+  ],
+  "storyline": {
+    "sections": [
+      {
+        "name": "Hook",
+        "duration": 15,
+        "content": "Attention-grabbing opening that poses a question or makes a bold statement",
+        "visualNotes": "Dynamic opening shot, text overlay with key question"
+      },
+      // All sections with details...
+    ]
+  }
+}`
                   }
                 ],
                 temperature: 0.7,
               });
 
-              const parsedContent = JSON.parse(completion.choices[0].message.content || '{}');
+              const responseContent = completion.choices[0].message.content || '{}';
+              console.log('🎬 OpenAI response length:', responseContent.length, 'characters');
+              
+              const parsedContent = JSON.parse(responseContent);
+              console.log('🎬 Parsed script structure:', {
+                hasTitle: !!parsedContent.title,
+                hasScript: !!parsedContent.script,
+                scriptType: typeof parsedContent.script,
+                scriptLength: Array.isArray(parsedContent.script) ? parsedContent.script.length : 'N/A',
+                hasStoryline: !!parsedContent.storyline
+              });
               
               const scriptData = {
                 ...parsedContent,

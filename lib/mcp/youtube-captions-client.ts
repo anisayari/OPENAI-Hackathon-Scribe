@@ -40,6 +40,8 @@ export class YouTubeCaptionsClient extends EventEmitter {
     try {
       this.emit('search:start', { query, maxResults });
       
+      console.warn('[YouTubeCaptionsClient] This client is deprecated. Use MCP integration instead.');
+      
       const response = await fetch(`${this.config.baseUrl}/youtube_captions?query=${encodeURIComponent(query)}&max_results=${maxResults}`, {
         method: 'GET',
         headers: {
@@ -184,7 +186,7 @@ Please provide:
 // Factory function to create client with environment variables
 export function createYouTubeCaptionsClient(baseUrl?: string): YouTubeCaptionsClient {
   const config: MCPServerConfig = {
-    baseUrl: baseUrl || process.env.YOUTUBE_MCP_SERVER_URL || 'http://localhost:3000',
+    baseUrl: baseUrl || process.env.YOUTUBE_MCP_SERVER_URL || 'https://youtube-mcp-server.anis-ayari-perso.workers.dev',
     apiKey: process.env.YOUTUBE_MCP_API_KEY
   };
 

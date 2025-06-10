@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
           console.log('Starting research phase...');
           let researchResult;
           try {
-            researchResult = await performResearch(prompt, prompt);
+            researchResult = await performResearch(prompt, prompt, null, sessionId, mcpServer);
           } catch (error) {
             console.warn('Research failed, continuing with empty results:', error);
             researchResult = {
@@ -69,12 +69,58 @@ export async function POST(request: NextRequest) {
           console.log('Starting production planning phase...');
           let productionPlan;
           try {
-            productionPlan = await performReasoningAndScaffolding(
+            const reasoningResult = await performReasoningAndScaffolding(
               prompt,
               prompt,
               researchResult,
               undefined // No example script for now
             );
+            
+            // Extract the production plan from the agent's response
+            if (reasoningResult && reasoningResult.finalOutput) {
+              try {
+                // Try to parse the final output as JSON
+                productionPlan = typeof reasoningResult.finalOutput === 'string' 
+                  ? JSON.parse(reasoningResult.finalOutput)
+                  : reasoningResult.finalOutput;
+              } catch (parseError) {
+                console.error('Failed to parse production plan:', parseError);
+                // Create a fallback production plan
+                productionPlan = {
+                  sections: [
+                    {
+                      name: 'Introduction',
+                      duration: 30,
+                      sequences: [{
+                        objective: 'Introduce the topic',
+                        visualDescription: 'Opening visuals',
+                        payoff: 'Set the stage for the story'
+                      }]
+                    },
+                    {
+                      name: 'Main Content',
+                      duration: targetDuration - 60,
+                      sequences: [{
+                        objective: 'Explore the main narrative',
+                        visualDescription: 'Core content visuals',
+                        payoff: 'Deliver the main message'
+                      }]
+                    },
+                    {
+                      name: 'Conclusion',
+                      duration: 30,
+                      sequences: [{
+                        objective: 'Wrap up the story',
+                        visualDescription: 'Closing visuals',
+                        payoff: 'Leave a lasting impression'
+                      }]
+                    }
+                  ]
+                };
+              }
+            } else {
+              throw new Error('No production plan generated');
+            }
           } catch (error) {
             console.error('Production planning failed:', error);
             throw error; // Re-throw to be caught by outer try-catch
@@ -96,23 +142,23 @@ export async function POST(request: NextRequest) {
           // Save to Firestore
           const scriptData = {
             script,
-            title: productionPlan.title,
+            title: productionPlan.title || 'Untitled',
             storyline: {
               sections: productionPlan.sections.map(section => ({
-                nom: section.name,
+                nom: section.name || section.nom || 'Unnamed Section',
                 duree_sec: calculateSectionDuration(section, targetDuration),
-                objectifs: section.sequences ? section.sequences.map(seq => seq.objective) : [],
-                contenu: section.description || ''
+                objectifs: section.sequences ? section.sequences.map(seq => seq.objective || seq.objectif || '').filter(Boolean) : [],
+                contenu: section.description || section.contenu || ''
               }))
             },
             productionPlan,
             researchResult,
             prompt,
             targetDuration,
-            mcpServer,
-            searchEnabled,
+            mcpServer: mcpServer || null,
+            searchEnabled: searchEnabled || false,
             createdAt: new Date().toISOString(),
-            sessionId,
+            sessionId: sessionId || null,
             _advancedGeneration: true
           };
 
@@ -169,35 +215,116 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function convertProductionPlanToScript(plan: ProductionPlan, targetDuration: number): string {
+function convertProductionPlanToScript(plan: any, targetDuration: number): string {
   let script = '';
   let currentTime = 0;
 
-  plan.sections.forEach((section, index) => {
-    const sectionDuration = calculateSectionDuration(section, targetDuration);
-    const endTime = currentTime + sectionDuration;
-    
-    // Section header
-    script += `${currentTime}-${endTime} seconds: (${section.name})\n`;
-    
-    // Add section content
-    if (section.sequences) {
-      section.sequences.forEach(sequence => {
-        script += `[${sequence.visualDescription}]\n`;
-        script += `${sequence.objective}\n`;
-        if (sequence.payoff) {
-          script += `${sequence.payoff}\n`;
-        }
-        script += '\n';
-      });
-    } else if (section.description) {
-      script += `${section.description}\n\n`;
-    }
-    
-    currentTime = endTime;
-  });
+  // Ensure plan exists
+  if (!plan) {
+    console.error('No production plan provided');
+    return 'Error: No production plan provided';
+  }
 
-  return script.trim();
+  // Handle the VideoScaffold structure (with named sections)
+  if (plan.sections && Array.isArray(plan.sections)) {
+    plan.sections.forEach((section: any) => {
+      if (section.nom === 'Hook & Introduction') {
+        const duration = section.duree_max_sec || 30;
+        const endTime = currentTime + duration;
+        script += `${currentTime}-${endTime} seconds: (Hook & Introduction)\n`;
+        script += `[Opening shot - Dynamic visual hook with text overlay]\n\n`;
+        
+        script += `OPENING HOOK:\n${plan.hook || 'Engaging opening'}\n\n`;
+        
+        // Add objectives as introduction points
+        if (section.objectifs && section.objectifs.length > 0) {
+          script += `KEY POINTS TO COVER:\n`;
+          section.objectifs.forEach((obj: string) => {
+            script += `• ${obj}\n`;
+          });
+          script += `\n`;
+        }
+        
+        script += `---\n\n`;
+        currentTime = endTime;
+      } else if (section.nom === 'Body' && section.sequences) {
+        section.sequences.forEach((sequence: any, idx: number) => {
+          const duration = Math.floor(targetDuration / section.sequences.length);
+          const endTime = currentTime + duration;
+          
+          // Extract a title from the objective or create a meaningful one
+          let sequenceTitle = '';
+          if (sequence.objectif) {
+            // Take first few words from objective as title
+            const words = sequence.objectif.split(' ').slice(0, 5).join(' ');
+            sequenceTitle = words.charAt(0).toUpperCase() + words.slice(1);
+            if (sequence.objectif.split(' ').length > 5) {
+              sequenceTitle += '...';
+            }
+          } else if (sequence.type) {
+            sequenceTitle = `${sequence.type.charAt(0).toUpperCase() + sequence.type.slice(1)} Sequence`;
+          } else {
+            sequenceTitle = `Main Content ${idx + 1}`;
+          }
+          
+          script += `${currentTime}-${endTime} seconds: (${sequenceTitle})\n`;
+          script += `[${sequence.visuals || 'Visual description'}]\n\n`;
+          
+          // Add detailed objective as the main narration
+          script += `NARRATION:\n${sequence.objectif || 'Sequence objective'}\n\n`;
+          
+          // Add stakes as additional context
+          if (sequence.stake) {
+            script += `CONTEXT & STAKES:\n${sequence.stake}\n\n`;
+          }
+          
+          // Add payoff as the conclusion
+          if (sequence.payoff) {
+            script += `OUTCOME & IMPACT:\n${sequence.payoff}\n\n`;
+          }
+          
+          // Add any additional content from the sequence
+          if (sequence.contenu) {
+            script += `DETAILED CONTENT:\n${sequence.contenu}\n\n`;
+          }
+          
+          script += '---\n\n';
+          currentTime = endTime;
+        });
+      } else if (section.nom === 'Outro & CTA') {
+        const duration = section.duree_moyenne_sec || 30;
+        const endTime = currentTime + duration;
+        script += `${currentTime}-${endTime} seconds: (Outro & CTA)\n`;
+        script += `[Closing visuals - Branded end screen with subscribe button and related video thumbnails]\n\n`;
+        
+        script += `CONCLUSION & CALL TO ACTION:\n`;
+        if (section.contenu && Array.isArray(section.contenu)) {
+          section.contenu.forEach((content: string) => {
+            script += `${content}\n\n`;
+          });
+        }
+        
+        script += `ENGAGEMENT PROMPTS:\n`;
+        script += `• Like this video if you found it valuable\n`;
+        script += `• Subscribe for more content on this topic\n`;
+        script += `• Comment below with your thoughts and questions\n`;
+        script += `• Check out our related videos in the description\n\n`;
+        
+        script += `---\n\n`;
+        currentTime = endTime;
+      }
+    });
+  } else {
+    // Fallback for unexpected structure
+    script = `0-${targetDuration} seconds: (Full Video)\n`;
+    script += `Title: ${plan.title || 'Untitled'}\n`;
+    script += `Angle: ${plan.angle || 'General perspective'}\n`;
+    script += `Hook: ${plan.hook || 'Opening hook'}\n\n`;
+    script += `[Main content based on the topic]\n`;
+    script += `Please develop this script further based on your research.\n`;
+  }
+
+  return script || 'Error: Unable to generate script from production plan';
 }
 
 function calculateSectionDuration(section: any, totalDuration: number): number {

@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useFirestoreSync } from '@/lib/firestore-sync';
 import DocumentEditor from '@/components/DocumentEditor';
 import EnhancedDocumentEditor from '@/components/EnhancedDocumentEditor';
+import FormattedScriptDisplay from '@/components/FormattedScriptDisplay';
 import Header from '@/components/Header';
 import AgentThinkingPanel from '@/components/AgentThinkingPanel';
 import SimpleFineTuning from '@/components/SimpleFineTuning';
@@ -28,19 +29,73 @@ export default function DocPage() {
 
   useEffect(() => {
     const initializeScript = async () => {
-      // Check if we have data from the exploration
+      // Check if we have an ID or data from the exploration
+      const scriptIdFromUrl = searchParams.get('id');
       const data = searchParams.get('data');
       let newScriptId = '';
       
-      if (data) {
+      if (scriptIdFromUrl) {
+        // Load script directly from Firestore using the ID
+        try {
+          const loadedScript = await loadScript(scriptIdFromUrl);
+          if (loadedScript) {
+            console.log('Loaded script from Firestore:', loadedScript);
+            
+            // Process the loaded script data
+            const script = loadedScript.script || loadedScript.Script;
+            const title = loadedScript.title || loadedScript.Title || 'Generated Script';
+            const storyline = loadedScript.storyline || loadedScript.Storyline || loadedScript['Storyline Structure'];
+            
+            // Set the content based on script format
+            let finalContent = '';
+            if (typeof script === 'string') {
+              finalContent = script;
+            } else if (typeof script === 'object' && !Array.isArray(script)) {
+              // Handle object format with scene keys
+              const scenes = Object.entries(script).sort((a, b) => {
+                const numA = parseInt(a[0].match(/\d+/)?.[0] || '0');
+                const numB = parseInt(b[0].match(/\d+/)?.[0] || '0');
+                return numA - numB;
+              });
+              
+              finalContent = scenes.map(([sceneKey, sceneContent]: [string, any]) => {
+                const sceneTitle = sceneKey.toUpperCase();
+                return `<p><strong>${sceneTitle}</strong></p><p>${sceneContent}</p>`;
+              }).join('<br>');
+            }
+            
+            setScriptContent(finalContent);
+            setDocumentTitle(title);
+            setStorylineData(storyline);
+            setTargetDuration(loadedScript.targetDuration || 1500);
+            setFullScriptData(loadedScript);
+            setScriptId(scriptIdFromUrl);
+            
+            console.log('📄 Document loaded successfully:', {
+              title,
+              scriptFormat: typeof script,
+              hasStoryline: !!storyline,
+              duration: loadedScript.targetDuration
+            });
+          }
+        } catch (error) {
+          console.error('Error loading script from Firestore:', error);
+        }
+      } else if (data) {
         try {
           const parsedData = JSON.parse(decodeURIComponent(data));
+          console.log('Parsed data from URL:', parsedData);
           let finalContent = '';
           
-          // Handle script data - it might be an array of objects or a string
-          if (Array.isArray(parsedData.script)) {
+          // Handle different key formats (capitalized or lowercase)
+          const script = parsedData.script || parsedData.Script;
+          const title = parsedData.title || parsedData.Title;
+          const storyline = parsedData.storyline || parsedData.Storyline || parsedData['Storyline Structure'];
+          
+          // Handle script data - it might be an array of objects, a string, or an object with scene keys
+          if (Array.isArray(script)) {
             // Convert array of timestamp objects to HTML format with bold titles
-            finalContent = parsedData.script.map((item: any, index: number) => {
+            finalContent = script.map((item: any, index: number) => {
               if (typeof item === 'object' && item.timestamp && item.content) {
                 // Extract title from content (first sentence or until comma)
                 const titleMatch = item.content.match(/^([^.,:]+)/);
@@ -52,13 +107,31 @@ export default function DocPage() {
               return `<p>${item.toString()}</p>`;
             }).join('<br>');
             // Store the parsed sections for enhanced editor
-            setParsedSections(parsedData.script);
+            setParsedSections(script);
+          } else if (typeof script === 'object' && !Array.isArray(script)) {
+            // Handle object format with scene keys
+            const scenes = Object.entries(script).sort((a, b) => {
+              const numA = parseInt(a[0].match(/\d+/)?.[0] || '0');
+              const numB = parseInt(b[0].match(/\d+/)?.[0] || '0');
+              return numA - numB;
+            });
+            
+            finalContent = scenes.map(([sceneKey, sceneContent]: [string, any]) => {
+              const sceneTitle = sceneKey.toUpperCase();
+              return `<p><strong>${sceneTitle}</strong></p><p>${sceneContent}</p>`;
+            }).join('<br>');
+            
+            // Convert to sections array
+            setParsedSections(scenes.map(([sceneKey, sceneContent]) => ({
+              timestamp: sceneKey,
+              content: sceneContent
+            })));
           } else {
-            const originalScript = parsedData.script || '';
+            const originalScript = script || '';
             
             // Parse sections from string format if needed
-            if (parsedData.script) {
-              const sections = parsedData.script.split('\n\n');
+            if (script) {
+              const sections = script.split('\n\n');
               finalContent = sections.map((section: string, index: number) => {
                 const match = section.match(/^(\d{2}:\d{2}):\s*(.+)$/);
                 if (match) {
@@ -82,8 +155,26 @@ export default function DocPage() {
           }
           setScriptContent(finalContent);
           
-          setDocumentTitle(parsedData.title || 'Generated Script');
-          setStorylineData(parsedData.storyline || parsedData.storyline_structure || null);
+          setDocumentTitle(title || 'Generated Script');
+          
+          // Handle different storyline formats
+          let processedStoryline = null;
+          if (storyline) {
+            if (Array.isArray(storyline)) {
+              processedStoryline = { sections: storyline };
+            } else if (typeof storyline === 'object' && storyline.sections) {
+              processedStoryline = storyline;
+            } else if (typeof storyline === 'object') {
+              // Convert object with scene keys to sections array
+              const sections = Object.entries(storyline).map(([key, value]) => ({
+                name: key,
+                content: value
+              }));
+              processedStoryline = { sections };
+            }
+          }
+          
+          setStorylineData(processedStoryline);
           setTargetDuration(parsedData.targetDuration || 1500);
           setFullScriptData(parsedData); // Store full data for image generation
           
@@ -239,10 +330,20 @@ export default function DocPage() {
           <main className={`flex-1 flex justify-center pt-8 pb-16 transition-all duration-300 ${
             isThinkingPanelOpen ? 'pr-[320px]' : ''
           } ${showStoryline && (storylineData || parsedSections.length > 0) ? 'pl-[300px]' : ''}`}>
-            <DocumentEditor
-              content={scriptContent}
-              onChange={updateScriptContent}
-            />
+            {fullScriptData ? (
+              <FormattedScriptDisplay
+                title={documentTitle}
+                script={fullScriptData.script || fullScriptData.Script || parsedSections || scriptContent}
+                storyline={storylineData}
+                duration={targetDuration}
+                onChange={updateScriptContent}
+              />
+            ) : (
+              <DocumentEditor
+                content={scriptContent}
+                onChange={updateScriptContent}
+              />
+            )}
           </main>
         ) : viewMode === 'timeline' ? (
           <main className="flex-1 pt-16">
