@@ -40,3 +40,33 @@ next-env.d.ts
 # private keys and credentials
 serviceAccountKey.json
 serviceAccountKey.json.json
+
+# logs
+/logs
+*.log
+
+# python
+*.py
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/

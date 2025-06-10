@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import SelectionMenu from './SelectionMenu';
 import TypingAssistant from './TypingAssistant';
+import ImageSearch from './ImageSearch';
 
 interface DocumentEditorProps {
   content: string;
@@ -119,6 +120,24 @@ export default function DocumentEditor({ content, onChange }: DocumentEditorProp
     }
   };
 
+  const handleImageInsert = (imageUrl: string) => {
+    if (editorRef.current) {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        const img = document.createElement('img');
+        img.src = imageUrl;
+        img.style.maxWidth = '100%';
+        img.style.height = 'auto';
+        img.style.marginTop = '16px';
+        img.style.marginBottom = '16px';
+        range.insertNode(img);
+        range.collapse(false);
+        handleInput();
+      }
+    }
+  };
+
   const formatText = (command: string, value?: string) => {
     document.execCommand(command, false, value);
     handleInput();
@@ -208,6 +227,10 @@ export default function DocumentEditor({ content, onChange }: DocumentEditorProp
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 6h13M7 12h13m-13 6h13M4 6h.01M4 12h.01M4 18h.01"/>
           </svg>
         </button>
+        
+        <div className="w-px h-6 bg-gray-300 mx-1" />
+        
+        <ImageSearch onImageSelect={handleImageInsert} />
       </div>
 
       {/* Document Editor */}

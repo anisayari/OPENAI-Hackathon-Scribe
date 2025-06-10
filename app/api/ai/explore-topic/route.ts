@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import { mockScripts } from '@/lib/mock-data';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -9,7 +10,10 @@ export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
   
   try {
-    const { title, idea, mcpServer, youtubeKey, targetDuration, searchEnabled, customScripts } = await request.json();
+    const { prompt, mcpServer, youtubeKey, targetDuration, searchEnabled, customScripts, testMode } = await request.json();
+    
+    // Extract a title from the prompt for display purposes
+    const title = prompt.split('.')[0].substring(0, 50) + '...';
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -20,7 +24,7 @@ export async function POST(request: NextRequest) {
             const mockYoutubeResults = [
               {
                 type: 'youtube',
-                title: `Video 1 about ${title}`,
+                title: `Video 1 about ${title.substring(0, 30)}`,
                 description: 'Lorem ipsum dolor sit amet...',
                 thumbnail: 'https://via.placeholder.com/320x180',
                 subtitles: true
@@ -42,10 +46,55 @@ export async function POST(request: NextRequest) {
 
           // Perform OpenAI search and analysis
           if (searchEnabled) {
+            // Use mock data in test mode
+            if (testMode) {
+              console.log('Test mode enabled - using mock data for explore-topic');
+              
+              // Simulate processing delay
+              await new Promise(resolve => setTimeout(resolve, 1500));
+              
+              // Determine script type based on title/idea
+              let scriptType = 'spacex';
+              if (title.toLowerCase().includes('humanoid') || title.toLowerCase().includes('robot') || 
+                  idea.toLowerCase().includes('humanoid') || idea.toLowerCase().includes('optimus') ||
+                  idea.toLowerCase().includes('nvidia')) {
+                scriptType = 'humanoid';
+              } else if (title.toLowerCase().includes('marie') || title.toLowerCase().includes('curie') || 
+                  idea.toLowerCase().includes('biographie')) {
+                scriptType = 'mariecurie';
+              } else if (title.toLowerCase().includes('carbonara') || title.toLowerCase().includes('cooking') ||
+                         idea.toLowerCase().includes('tutoriel')) {
+                scriptType = 'cooking';
+              }
+              
+              const mockScript = mockScripts[scriptType as keyof typeof mockScripts];
+              
+              const mockResult = {
+                type: 'final',
+                content: {
+                  script: mockScript,
+                  title: title || "Test Video Title",
+                  storyline: {
+                    sections: [
+                      { name: "Hook", duration: 15, content: "Engaging opening" },
+                      { name: "Act 1", duration: Math.floor(targetDuration * 0.3), content: "Setup and context" },
+                      { name: "Act 2", duration: Math.floor(targetDuration * 0.4), content: "Main content" },
+                      { name: "Act 3", duration: Math.floor(targetDuration * 0.25), content: "Resolution" },
+                      { name: "Outro", duration: Math.floor(targetDuration * 0.05), content: "Call to action" }
+                    ]
+                  },
+                  _testMode: true
+                }
+              };
+              
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(mockResult)}\n\n`));
+              controller.close();
+              return;
+            }
+            
             const searchPrompt = `
               Analyse le sujet suivant et crée un script pour une vidéo YouTube:
-              Titre: ${title}
-              Idée: ${idea}
+              Description: ${prompt}
               Durée cible: ${targetDuration} secondes
 
               En te basant sur la méthodologie fournie, génère:

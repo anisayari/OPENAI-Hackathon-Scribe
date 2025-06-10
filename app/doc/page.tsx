@@ -8,6 +8,7 @@ import DocumentEditor from '@/components/DocumentEditor';
 import Header from '@/components/Header';
 import AgentThinkingPanel from '@/components/AgentThinkingPanel';
 import SimpleFineTuning from '@/components/SimpleFineTuning';
+import Timeline from '@/components/Timeline';
 
 export default function DocPage() {
   const searchParams = useSearchParams();
@@ -18,6 +19,8 @@ export default function DocPage() {
   const [isThinkingPanelOpen, setIsThinkingPanelOpen] = useState(false);
   const [showStoryline, setShowStoryline] = useState(false);
   const [storylineData, setStorylineData] = useState<any>(null);
+  const [viewMode, setViewMode] = useState<'doc' | 'timeline'>('doc');
+  const [targetDuration, setTargetDuration] = useState<number>(1500);
 
   useEffect(() => {
     // Check if we have data from the exploration
@@ -28,6 +31,7 @@ export default function DocPage() {
         setScriptContent(parsedData.script || '');
         setDocumentTitle(parsedData.title || 'Generated Script');
         setStorylineData(parsedData.storyline || null);
+        setTargetDuration(parsedData.targetDuration || 1500);
       } catch (e) {
         console.error('Error parsing data:', e);
       }
@@ -103,8 +107,38 @@ export default function DocPage() {
       />
       
       <div className="flex-1 flex relative">
-        {storylineData && (
-          <div className="absolute top-4 left-4 z-10">
+        {/* View Mode Toggle */}
+        <div className="absolute top-4 left-4 z-10 flex items-center gap-2">
+          <div className="bg-white border border-gray-200 rounded-lg p-1 flex">
+            <button
+              onClick={() => setViewMode('doc')}
+              className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-2 text-sm ${
+                viewMode === 'doc' 
+                  ? 'bg-gray-900 text-white' 
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Document
+            </button>
+            <button
+              onClick={() => setViewMode('timeline')}
+              className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-2 text-sm ${
+                viewMode === 'timeline' 
+                  ? 'bg-gray-900 text-white' 
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Timeline
+            </button>
+          </div>
+          
+          {viewMode === 'doc' && storylineData && (
             <button
               onClick={() => setShowStoryline(!showStoryline)}
               className="px-3 py-1.5 bg-white border border-gray-200 rounded-md hover:bg-gray-50 transition-colors flex items-center gap-2 text-sm"
@@ -114,19 +148,28 @@ export default function DocPage() {
               </svg>
               {showStoryline ? 'Hide' : 'Show'} Storyline
             </button>
-          </div>
+          )}
+        </div>
+
+        {viewMode === 'doc' ? (
+          <main className={`flex-1 flex justify-center pt-8 pb-16 transition-all duration-300 ${
+            isThinkingPanelOpen ? 'pr-[320px]' : ''
+          } ${showStoryline ? 'pl-[400px]' : ''}`}>
+            <DocumentEditor
+              content={scriptContent}
+              onChange={updateScript}
+            />
+          </main>
+        ) : (
+          <main className="flex-1 pt-16">
+            <Timeline
+              script={scriptContent}
+              totalDuration={targetDuration}
+            />
+          </main>
         )}
 
-        <main className={`flex-1 flex justify-center pt-8 pb-16 transition-all duration-300 ${
-          isThinkingPanelOpen ? 'pr-[320px]' : ''
-        } ${showStoryline ? 'pl-[400px]' : ''}`}>
-          <DocumentEditor
-            content={scriptContent}
-            onChange={updateScript}
-          />
-        </main>
-
-        {showStoryline && storylineData && (
+        {viewMode === 'doc' && showStoryline && storylineData && (
           <div className="fixed left-0 top-16 bottom-0 w-[400px] bg-white border-r border-gray-200 overflow-y-auto p-6">
             <h2 className="text-xl font-light mb-6 text-gray-900">Storyline</h2>
             <div className="space-y-6">
