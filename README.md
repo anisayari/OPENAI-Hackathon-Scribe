@@ -2,6 +2,10 @@
 
 A professional script editing application that combines real-time collaboration, AI voice assistance, and custom fine-tuning capabilities.
 
+## 🎬 MCP YouTube Server
+
+This project integrates with the [MCP YouTube Server](https://github.com/anisayari/MCP-youtube-server) for enhanced YouTube content analysis and script generation. The MCP server provides advanced YouTube API integration for transcript extraction, video analysis, and content research capabilities.
+
 ## 🚀 Features
 
 - **Real-time Script Editing**: Collaborative document editing with Firebase sync
