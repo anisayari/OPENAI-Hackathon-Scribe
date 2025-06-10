@@ -46,7 +46,6 @@ serviceAccountKey.json.json
 *.log
 
 # python
-*.py
 __pycache__/
 *.pyc
 *.pyo
@@ -70,3 +69,6 @@ coverage.xml
 .dmypy.json
 dmypy.json
 .pyre/
+
+# Allow Python files in functions-python directory
+!functions-python/**/*.py

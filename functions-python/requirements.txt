@@ -1,0 +1,5 @@
+functions-framework==3.*
+openai>=1.52.0
+requests>=2.31.0
+firebase-admin>=6.2.0
+python-dotenv>=1.0.0
